@@ -19,6 +19,8 @@
 #include <time.h>
 #include <fcntl.h>
 #include <linux/limits.h>
+#include <jansson.h>
+#include <jwt.h>
 
 #include "http.h"
 #include "hexdump.h"
@@ -31,6 +33,8 @@
 #define CR "\r"
 #define STARTS_WITH(field_name, header) \
     (!strncasecmp(field_name, header, sizeof(header) - 1))
+
+static const char * NEVER_EMBED_A_SECRET_IN_CODE = "DUCKS MIGRATE IN THE SUMMER";
 
 /* Parse HTTP request line, setting req_method, req_path, and req_version. */
 static bool
@@ -274,6 +278,9 @@ guess_mime_type(char *filename)
     if (!strcasecmp(suffix, ".js"))
         return "text/javascript";
 
+    if (!strcasecmp(suffix, ".css"))
+        return "text/css";
+
     return "text/plain";
 }
 
@@ -329,7 +336,63 @@ out:
 static bool
 handle_api(struct http_transaction *ta)
 {
-    return send_error(ta, HTTP_NOT_FOUND, "API not implemented");
+    ta->resp_status = HTTP_OK;
+
+    if (ta->req_method == HTTP_POST)
+    {
+        char * pathOfLogin = bufio_offset2ptr(ta->client->bufio, ta->req_path);
+
+        if (strcmp(pathOfLogin, "/api/login") != 0)
+        {
+            return send_error(ta, HTTP_PERMISSION_DENIED, "DUCKS ARE COOL!");
+        }
+
+        json_error_t error; 
+        char* body = bufio_offset2ptr(ta->client->bufio, ta->req_body);
+        json_t * json = json_loadb(body, ta->req_body, JSON_DISABLE_EOF_CHECK, &error);
+
+        json_t * username = json_object_get(json, "username");
+        json_t * password = json_object_get(json, "password");
+
+        printf("username: %s password: %s", json_string_value(username), json_string_value(password));
+
+        if (strcmp(json_string_value(username), "user0") == 0 && strcmp(json_string_value(password), "thepassword") == 0)
+        {
+            jwt_t *mytoken;
+
+            jwt_new(&mytoken);
+
+            jwt_add_grant(mytoken, "sub", json_string_value(username)); //I think always user0
+
+            time_t now = time(NULL);
+            jwt_add_grant_int(mytoken, "iat", now);
+
+            jwt_add_grant_int(mytoken, "exp", now + 3600 * 24);
+
+            jwt_set_alg(mytoken, JWT_ALG_HS256, 
+                (unsigned char *)NEVER_EMBED_A_SECRET_IN_CODE, 
+                strlen(NEVER_EMBED_A_SECRET_IN_CODE));
+
+            char * cookie = jwt_encode_str(mytoken);
+
+            char * grant = jwt_get_grants_json(mytoken, NULL); 
+
+            buffer_appends(&ta->resp_body, grant);
+            http_add_header(&ta->resp_headers, "Set-Cookie", "auth_token=%s; Path=/", cookie);
+            http_add_header(&ta->resp_headers, "Content-Type", "%s", "application/json");
+            return send_response(ta);
+        }
+
+        return send_error(ta, HTTP_PERMISSION_DENIED, "DUCKS ARE COOL!");
+    }
+
+    else if (ta->req_method == HTTP_GET)
+    {
+
+    }
+
+    buffer_appends(&ta->resp_body, "{}");
+    return send_response(ta);
 }
 
 /* Set up an http client, associating it with a bufio buffer. */

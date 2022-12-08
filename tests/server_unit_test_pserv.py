@@ -126,6 +126,7 @@ def print_response(response):
         print(line.strip())
 
 def check_empty_login_respnse(response):
+    print(response.strip())
     return response.strip() == "{}"
 
 ld_preload = f'{script_dir}/getaddrinfo.so.1.0.1'

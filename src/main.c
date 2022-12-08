@@ -48,6 +48,9 @@ server_loop(char *port_string)
         if (client_socket == -1)
             return;
 
+        int *socket = malloc(sizeof(int));
+        *socket = client_socket;
+
         struct http_client client;
         http_setup_client(&client, bufio_create(client_socket));
         http_handle_transaction(&client);

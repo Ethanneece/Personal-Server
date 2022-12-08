@@ -44,7 +44,7 @@ socket_open_bind_listen(char * port_number_string, int backlog)
     memset(&hint, 0, sizeof hint);
 
     hint.ai_flags = AI_PASSIVE |    // we're looking for an address to bind to
-                    AI_NUMERICSERV; // service port is numeric, don't look in /etc/services
+                    AI_NUMERICSERV | AI_ADDRCONFIG; // service port is numeric, don't look in /etc/services
 
     hint.ai_protocol = IPPROTO_TCP; // only interested in TCP
     int rc = getaddrinfo(NULL, port_number_string, &hint, &info);
@@ -52,6 +52,8 @@ socket_open_bind_listen(char * port_number_string, int backlog)
         fprintf(stderr, "getaddrinfo error: %s\n", gai_strerror(rc));
         return -1;
     }
+
+    int s = -1; 
 
     char printed_addr[1024];
     for (pinfo = info; pinfo; pinfo = pinfo->ai_next) {
@@ -64,19 +66,18 @@ socket_open_bind_listen(char * port_number_string, int backlog)
             return -1;
         }
 
-        /* Uncomment this to see the address returned
         printf("%s: %s\n", pinfo->ai_family == AF_INET ? "AF_INET" :
                            pinfo->ai_family == AF_INET6 ? "AF_INET6" : "?", 
                            printed_addr);
-        */
+
 
         /* Skip any non-IPv4 addresses.  
          * Adding support for protocol independence/IPv6 is part of the project.
          */
-        if (pinfo->ai_family != AF_INET)
+        if (pinfo->ai_family != AF_INET6)
             continue;
 
-        int s = socket(pinfo->ai_family, pinfo->ai_socktype, pinfo->ai_protocol);
+        s = socket(pinfo->ai_family, pinfo->ai_socktype, pinfo->ai_protocol);
         if (s == -1) {
             perror("socket");
             return -1;
@@ -99,12 +100,10 @@ socket_open_bind_listen(char * port_number_string, int backlog)
             close(s);
             return -1;
         }
-
-        freeaddrinfo(info);
-        return s;
     }
-    fprintf(stderr, "No suitable address to bind port %s found\n", port_number_string);
-    return -1;
+
+    freeaddrinfo(info);
+    return s;
 }
 
 /**
