@@ -54,9 +54,10 @@ const LoginForm = (props) => {
             <ButtonToolbar>
               <Button
                 type='submit'
-                bsstyle='success' className="mr-2">
+                bsstyle='success'> 
                 Submit
               </Button> 
+                &nbsp;
               <Button
                 type="button"
                 onClick={handleReset}

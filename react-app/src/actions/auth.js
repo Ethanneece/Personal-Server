@@ -31,3 +31,19 @@ export function checklogin() {
     },
   });
 }
+
+export function logout() {
+  return apiAction({
+    baseType: 'LOGOUT',
+    fetch() {
+      return api.auth.logout();
+    },
+    onSuccess(dispatch, data, getState) {
+        toastr.success(`Success logging out: ${JSON.stringify(data)}`);
+    },
+    onError(dispatch, data, getState) {
+        toastr.success(`Error logging out: ${JSON.stringify(data && data.response && data.response.text)}`);
+    },
+  });
+}
+

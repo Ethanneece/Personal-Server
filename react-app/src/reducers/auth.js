@@ -29,7 +29,7 @@ export default function(state = initialState, action) {
         if (!('sub' in newState))
             delete newState.loadingStatus;
     }
-    if (action.type === 'LOGOUT') {
+    if (action.type.startsWith('LOGOUT:')) {
         newState = { }
     }
 

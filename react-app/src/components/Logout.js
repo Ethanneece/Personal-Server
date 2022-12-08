@@ -1,15 +1,23 @@
 import React, { useEffect } from 'react';
 import { Navigate } from 'react-router-dom';
-import store from '../store';
+import { useDispatch, useSelector } from 'react-redux';
+import { logout } from '../actions/auth.js';
+import { isLoaded } from '../util/loadingObject'
 
 const Logout = () => {
-    // normally, we would inform the server just in case.
-    // (also, this wouldn't work if the cookie were httponly which it ought to be
-    document.cookie = "auth_token=";
+    const dispatch = useDispatch();
+    const user = useSelector(state => state.auth);
+    const isAuthenticated = isLoaded(user);
+
+    // log out on render, and navigate to root on success
     useEffect(() => {
-        store.dispatch({ type: "LOGOUT" });
+        dispatch(logout());
     }, []);
-    return (<Navigate to="/" />);
+
+    if (isAuthenticated)
+        return (<i>Logging you out ....</i>);
+    else
+        return (<Navigate to="/" />);
 };
 
 export default Logout;
