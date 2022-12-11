@@ -154,7 +154,15 @@ add_content_length(buffer_t *res, size_t len)
 static void
 start_response(struct http_transaction * ta, buffer_t *res)
 {
-    buffer_appends(res, "HTTP/1.0 ");
+    if (ta->req_version == HTTP_1_1)
+    {
+        buffer_appends(res, "HTTP/1.1 ");
+    }
+    else
+    {
+        buffer_appends(res, "HTTP/1.0 ");
+    }
+    
 
     switch (ta->resp_status) {
     case HTTP_OK:
@@ -383,7 +391,7 @@ handle_api(struct http_transaction *ta)
             return send_response(ta);
         }
 
-        return send_error(ta, HTTP_PERMISSION_DENIED, "DUCKS ARE COOL!");
+        return send_error(ta, HTTP_PERMISSION_DENIED, "Autentication failed.");
     }
 
     else if (ta->req_method == HTTP_GET)
@@ -430,19 +438,23 @@ http_handle_transaction(struct http_client *self)
     http_add_header(&ta.resp_headers, "Server", "CS3214-Personal-Server");
     buffer_init(&ta.resp_body, 0);
 
-    bool rc = false;
     char *req_path = bufio_offset2ptr(ta.client->bufio, ta.req_path);
     if (STARTS_WITH(req_path, "/api")) {
-        rc = handle_api(&ta);
+        handle_api(&ta);
     } else
     if (STARTS_WITH(req_path, "/private")) {
         /* not implemented */
     } else {
-        rc = handle_static_asset(&ta, server_root);
+        handle_static_asset(&ta, server_root);
     }
 
     buffer_delete(&ta.resp_headers);
     buffer_delete(&ta.resp_body);
 
-    return rc;
+    if (ta.req_version == HTTP_1_1) 
+    {
+        return true; 
+    }
+
+    return false;
 }

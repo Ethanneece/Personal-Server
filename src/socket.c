@@ -44,7 +44,7 @@ socket_open_bind_listen(char * port_number_string, int backlog)
     memset(&hint, 0, sizeof hint);
 
     hint.ai_flags = AI_PASSIVE |    // we're looking for an address to bind to
-                    AI_NUMERICSERV | AI_ADDRCONFIG; // service port is numeric, don't look in /etc/services
+                    AI_NUMERICSERV; // service port is numeric, don't look in /etc/services
 
     hint.ai_protocol = IPPROTO_TCP; // only interested in TCP
     int rc = getaddrinfo(NULL, port_number_string, &hint, &info);
@@ -100,10 +100,62 @@ socket_open_bind_listen(char * port_number_string, int backlog)
             close(s);
             return -1;
         }
+
+        freeaddrinfo(info);
+        return s;
     }
 
-    freeaddrinfo(info);
-    return s;
+    rc = getaddrinfo(NULL, port_number_string, &hint, &info);
+    if (rc != 0) {
+        fprintf(stderr, "getaddrinfo error: %s\n", gai_strerror(rc));
+        return -1;
+    }
+
+    s = -1; 
+
+    for (pinfo = info; pinfo; pinfo = pinfo->ai_next) {
+        assert (pinfo->ai_protocol == IPPROTO_TCP);
+        int rc = getnameinfo(pinfo->ai_addr, pinfo->ai_addrlen,
+                             printed_addr, sizeof printed_addr, NULL, 0,
+                             NI_NUMERICHOST);
+        if (rc != 0) {
+            fprintf(stderr, "getnameinfo error: %s\n", gai_strerror(rc));
+            return -1;
+        }
+
+        printf("%s: %s\n", pinfo->ai_family == AF_INET ? "AF_INET" :
+                           pinfo->ai_family == AF_INET6 ? "AF_INET6" : "?", 
+                           printed_addr);
+
+        s = socket(pinfo->ai_family, pinfo->ai_socktype, pinfo->ai_protocol);
+        if (s == -1) {
+            perror("socket");
+            return -1;
+        }
+
+        // See https://stackoverflow.com/a/3233022 for a good explanation of what this does
+        int opt = 1;
+        setsockopt (s, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof (opt));
+
+        rc = bind(s, pinfo->ai_addr, pinfo->ai_addrlen);
+        if (rc == -1) {
+            perror("bind");
+            close(s);
+            return -1;
+        }
+
+        rc = listen(s, backlog);
+        if (rc == -1) {
+            perror("listen");
+            close(s);
+            return -1;
+        }
+
+        freeaddrinfo(info);
+        return s;
+    }
+
+    return -1; 
 }
 
 /**

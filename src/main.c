@@ -9,6 +9,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <signal.h>
+#include <pthread.h>
 #include "buffer.h"
 #include "hexdump.h"
 #include "http.h"
@@ -34,6 +35,37 @@ int token_expiration_time = 24 * 60 * 60;
 // root from which static files are served
 char * server_root;
 
+pthread_mutex_t current_threads_lock;               // Lock for the future
+
+int currentThreads = 0; 
+
+int maxThreads = 10; 
+
+
+static void * clientConnection(void* _arg)
+{
+    int * client_socket = (int *) _arg;    
+    int *socket = malloc(sizeof(int));
+        *socket = *client_socket;
+
+
+    struct http_client client;
+    http_setup_client(&client, bufio_create(*client_socket));
+    bool condition = true; 
+    while (condition)
+    {
+        condition = http_handle_transaction(&client);
+    }
+    
+    bufio_close(client.bufio);
+
+    pthread_mutex_lock(&current_threads_lock);
+    currentThreads--;  
+    pthread_mutex_lock(&current_threads_lock);
+
+    return NULL;
+}
+
 /*
  * A non-concurrent, iterative server that serves one client at a time.
  * For each client, it handles exactly 1 HTTP transaction.
@@ -41,6 +73,7 @@ char * server_root;
 static void
 server_loop(char *port_string)
 {
+    pthread_mutex_init(&current_threads_lock, NULL);
     int accepting_socket = socket_open_bind_listen(port_string, 10000);
     while (accepting_socket != -1) {
         fprintf(stderr, "Waiting for client...\n");
@@ -48,13 +81,23 @@ server_loop(char *port_string)
         if (client_socket == -1)
             return;
 
-        int *socket = malloc(sizeof(int));
-        *socket = client_socket;
+        if (currentThreads >= maxThreads)
+        {
+            //Figure out what to do. 
+        }
+        else
+        {
+            currentThreads++; 
+            pthread_t thread; 
+            int rc = pthread_create(&thread, NULL, clientConnection, &client_socket);
 
-        struct http_client client;
-        http_setup_client(&client, bufio_create(client_socket));
-        http_handle_transaction(&client);
-        bufio_close(client.bufio);
+            if (rc != 0)
+            {
+                printf("thread creation failed");
+                exit(1);
+            }
+        }
+
     }
 }
 
