@@ -22,6 +22,7 @@
 #include <jansson.h>
 #include <jwt.h>
 #include <string.h>
+#include <dirent.h>
 
 #include "http.h"
 #include "hexdump.h"
@@ -81,83 +82,6 @@ http_parse_request(struct http_transaction *ta)
         return false;
 
     return true;
-}
-
-/* Process HTTP headers. */
-static bool
-http_process_headers(struct http_transaction *ta)
-{
-    for (;;) {
-        size_t header_offset;
-        ssize_t len = bufio_readline(ta->client->bufio, &header_offset);
-        if (len <= 0)
-            return false;
-
-        char *header = bufio_offset2ptr(ta->client->bufio, header_offset);
-        if (len == 2 && STARTS_WITH(header, CRLF))       // empty CRLF
-            return true;
-
-        header[len-2] = '\0';
-        /* Each header field consists of a name followed by a 
-         * colon (":") and the field value. Field names are 
-         * case-insensitive. The field value MAY be preceded by 
-         * any amount of LWS, though a single SP is preferred.
-         */
-        char *endptr;
-        char *field_name = strtok_r(header, ":", &endptr);
-        if (field_name == NULL)
-            return false;
-
-        // skip white space
-        char *field_value = endptr;
-        while (*field_value == ' ' || *field_value == '\t')
-            field_value++;
-
-        // you may print the header like so
-        // printf("Header: %s: %s\n", field_name, field_value);
-        if (!strcasecmp(field_name, "Content-Length")) {
-            ta->req_content_len = atoi(field_value);
-        }
-
-        /* Handle other headers here. Both field_value and field_name
-         * are zero-terminated strings.
-         */
-        if (!strcasecmp(field_name, "Cookie")) {
-            while (*field_value != '=')
-                field_value++;
-            field_value++;
-
-            printf("Header: %s: %s\n", field_name, field_value);
-
-            jwt_t* token;
-
-            jwt_decode(&token, field_value, (unsigned char *)NEVER_EMBED_A_SECRET_IN_CODE, strlen(NEVER_EMBED_A_SECRET_IN_CODE));
-            char* grants = jwt_get_grants_json(token, NULL); // NULL means all
-            jwt_free(token);
-
-            json_error_t error;
-            json_t *jgrants = json_loadb(grants, strlen(grants), 0, &error);
-
-            free (grants);
-
-            json_int_t exp, iat;
-            const char *sub;
-            json_unpack(jgrants, "{s:I, s:I, s:s}", 
-                "exp", &exp, "iat", &iat, "sub", &sub);
-
-            time_t now = time(NULL);
-
-            if (exp > now)
-            {
-                ta->validated = true;
-            }
-
-            else
-            {
-                ta->validated = false;
-            }
-        }
-    }
 }
 
 const int MAX_HEADER_LEN = 2048;
@@ -289,6 +213,89 @@ send_error(struct http_transaction * ta, enum http_response_status status, const
     ta->resp_status = status;
     http_add_header(&ta->resp_headers, "Content-Type", "text/plain");
     return send_response(ta);
+}
+
+/* Process HTTP headers. */
+static bool
+http_process_headers(struct http_transaction *ta)
+{
+    for (;;) {
+        size_t header_offset;
+        ssize_t len = bufio_readline(ta->client->bufio, &header_offset);
+        if (len <= 0)
+            return false;
+
+        char *header = bufio_offset2ptr(ta->client->bufio, header_offset);
+        if (len == 2 && STARTS_WITH(header, CRLF))       // empty CRLF
+            return true;
+
+        header[len-2] = '\0';
+        /* Each header field consists of a name followed by a 
+         * colon (":") and the field value. Field names are 
+         * case-insensitive. The field value MAY be preceded by 
+         * any amount of LWS, though a single SP is preferred.
+         */
+        char *endptr;
+        char *field_name = strtok_r(header, ":", &endptr);
+        if (field_name == NULL)
+            return false;
+
+        // skip white space
+        char *field_value = endptr;
+        while (*field_value == ' ' || *field_value == '\t')
+            field_value++;
+
+        // you may print the header like so
+        // printf("Header: %s: %s\n", field_name, field_value);
+        if (!strcasecmp(field_name, "Content-Length")) {
+            ta->req_content_len = atoi(field_value);
+        }
+
+        /* Handle other headers here. Both field_value and field_name
+         * are zero-terminated strings.
+         */
+        if (!strcasecmp(field_name, "Cookie")) {
+            while (*field_value != '=')
+                field_value++;
+            field_value++;
+
+            printf("Header: %s: %s\n", field_name, field_value);
+
+            jwt_t* token;
+
+            int rc = jwt_decode(&token, field_value, (unsigned char *)NEVER_EMBED_A_SECRET_IN_CODE, strlen(NEVER_EMBED_A_SECRET_IN_CODE));
+
+            if (rc != 0)
+            {
+                return send_error(ta, HTTP_PERMISSION_DENIED, "Permission denied.");
+            }
+            
+            char* grants = jwt_get_grants_json(token, NULL); // NULL means all
+            jwt_free(token);
+
+            json_error_t error;
+            json_t *jgrants = json_loadb(grants, strlen(grants), 0, &error);
+
+            free (grants);
+
+            json_int_t exp, iat;
+            const char *sub;
+            json_unpack(jgrants, "{s:I, s:I, s:s}", 
+                "exp", &exp, "iat", &iat, "sub", &sub);
+
+            time_t now = time(NULL);
+
+            if (exp > now)
+            {
+                ta->validated = true;
+            }
+
+            else
+            {
+                ta->validated = false;
+            }
+        }
+    }
 }
 
 /* A start at assigning an appropriate mime type.  Real-world 
@@ -444,10 +451,10 @@ handle_api(struct http_transaction *ta)
 {
     ta->resp_status = HTTP_OK;
 
+    char * pathOfLogin = bufio_offset2ptr(ta->client->bufio, ta->req_path);
+
     if (ta->req_method == HTTP_POST)
     {
-        char * pathOfLogin = bufio_offset2ptr(ta->client->bufio, ta->req_path);
-
         if (strcmp(pathOfLogin, "/api/login") != 0)
         {
             return send_error(ta, HTTP_PERMISSION_DENIED, "DUCKS ARE COOL!");
@@ -498,7 +505,42 @@ handle_api(struct http_transaction *ta)
 
     else if (ta->req_method == HTTP_GET)
     {
+        if (strcmp(pathOfLogin, "/api/video") == 0)
+        {
+            DIR* directory = opendir(server_root);
+            struct dirent* current_file = readdir(directory);
 
+            json_t* body = json_array();
+
+            while (current_file != NULL)
+            {
+                char fname[PATH_MAX];
+                snprintf(fname, sizeof fname, "%s%s", server_root, current_file->d_name);
+
+                char* suffix = strrchr(fname, '.');
+
+                if (!strcasecmp(suffix, ".mp4"))
+                {
+                    struct stat sb;
+
+                    stat(fname, &sb);
+
+                    json_t* entry = json_object();
+                    json_object_set_new(entry, "size", json_integer(sb.st_size));
+                    json_object_set_new(entry, "name", json_string(current_file->d_name));
+
+                    json_decref(entry);
+
+                    json_array_append(body, entry);
+                }
+            }
+
+            // char* string_body = json_string_value(body);
+            // json_decref(body);
+
+            // buffer_appends(&ta->resp_body, string_body);
+            http_add_header(&ta->resp_headers, "Content-Type", "%s", "application/json");
+        }
     }
 
     buffer_appends(&ta->resp_body, "{}");
