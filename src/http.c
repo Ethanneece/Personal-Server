@@ -46,7 +46,7 @@ http_parse_request(struct http_transaction *ta)
     size_t req_offset;
     ssize_t len = bufio_readline(ta->client->bufio, &req_offset);
     if (len < 2)       // error, EOF, or less than 2 characters
-        return true;
+        return false;
 
     char *request = bufio_offset2ptr(ta->client->bufio, req_offset);
     request[len-2] = '\0';  // replace LF with 0 to ensure zero-termination
