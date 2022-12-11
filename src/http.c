@@ -21,6 +21,7 @@
 #include <linux/limits.h>
 #include <jansson.h>
 #include <jwt.h>
+#include <string.h>
 
 #include "http.h"
 #include "hexdump.h"
@@ -40,6 +41,8 @@ static const char * NEVER_EMBED_A_SECRET_IN_CODE = "DUCKS MIGRATE IN THE SUMMER"
 static bool
 http_parse_request(struct http_transaction *ta)
 {
+    ta->validated = false; 
+
     size_t req_offset;
     ssize_t len = bufio_readline(ta->client->bufio, &req_offset);
     if (len < 2)       // error, EOF, or less than 2 characters
@@ -113,12 +116,16 @@ http_process_headers(struct http_transaction *ta)
         // you may print the header like so
         // printf("Header: %s: %s\n", field_name, field_value);
         if (!strcasecmp(field_name, "Content-Length")) {
+            printf("Header: %s: %s\n", field_name, field_value);
             ta->req_content_len = atoi(field_value);
         }
 
         /* Handle other headers here. Both field_value and field_name
          * are zero-terminated strings.
          */
+        if (!strcasecmp(field_name, "Cookie")) {
+            printf(field_name);
+        }
     }
 }
 
@@ -341,6 +348,19 @@ out:
     return success;
 }
 
+static bool 
+handle_private_asset(struct http_transaction *ta, char * server_root)
+{
+    if (!ta->validated)
+    {
+        return send_error(ta, HTTP_PERMISSION_DENIED, "Validation failed.");
+    }
+    
+    handle_static_asset(ta, server_root);
+
+    return false; 
+}
+
 static bool
 handle_api(struct http_transaction *ta)
 {
@@ -361,6 +381,11 @@ handle_api(struct http_transaction *ta)
 
         json_t * username = json_object_get(json, "username");
         json_t * password = json_object_get(json, "password");
+
+        if (username == NULL || password == NULL)
+        {
+            return send_error(ta, HTTP_PERMISSION_DENIED, "read wrong.");
+        }
 
         printf("username: %s password: %s", json_string_value(username), json_string_value(password));
 
@@ -386,7 +411,7 @@ handle_api(struct http_transaction *ta)
             char * grant = jwt_get_grants_json(mytoken, NULL); 
 
             buffer_appends(&ta->resp_body, grant);
-            http_add_header(&ta->resp_headers, "Set-Cookie", "auth_token=%s; Path=/", cookie);
+            http_add_header(&ta->resp_headers, "Set-Cookie", "auth_token=%s; HttpOnly; Max-Age=%d; Path=/", cookie, 3600 * 24);
             http_add_header(&ta->resp_headers, "Content-Type", "%s", "application/json");
             return send_response(ta);
         }
@@ -439,11 +464,16 @@ http_handle_transaction(struct http_client *self)
     buffer_init(&ta.resp_body, 0);
 
     char *req_path = bufio_offset2ptr(ta.client->bufio, ta.req_path);
-    if (STARTS_WITH(req_path, "/api")) {
+
+    if (strstr(req_path, ".."))
+    {
+        send_error(&ta, HTTP_NOT_FOUND, "Autentication failed.");
+    }
+    else if (STARTS_WITH(req_path, "/api")) {
         handle_api(&ta);
     } else
     if (STARTS_WITH(req_path, "/private")) {
-        /* not implemented */
+        handle_private_asset(&ta, server_root);
     } else {
         handle_static_asset(&ta, server_root);
     }

@@ -1458,7 +1458,7 @@ class Access_Control(Doc_Print_Test_Case):
             raise AssertionError("The server did not respond within 2s")
 
         # Ensure that the user is not authenticated
-        # accepted responses include 400 and 403
+        # accepted responses include 400 and 403:
         if response.status_code not in [requests.codes.bad_request, requests.codes.forbidden]:
             raise AssertionError("Server did not respond with 403 or 400 to missing authentication info")
 
