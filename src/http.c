@@ -46,7 +46,7 @@ http_parse_request(struct http_transaction *ta)
     size_t req_offset;
     ssize_t len = bufio_readline(ta->client->bufio, &req_offset);
     if (len < 2)       // error, EOF, or less than 2 characters
-        return false;
+        return true;
 
     char *request = bufio_offset2ptr(ta->client->bufio, req_offset);
     request[len-2] = '\0';  // replace LF with 0 to ensure zero-termination
@@ -291,14 +291,6 @@ send_error(struct http_transaction * ta, enum http_response_status status, const
     return send_response(ta);
 }
 
-/* Send Not Found response. */
-static bool
-send_not_found(struct http_transaction *ta)
-{
-    return send_error(ta, HTTP_NOT_FOUND, "File %s not found", 
-        bufio_offset2ptr(ta->client->bufio, ta->req_path));
-}
-
 /* A start at assigning an appropriate mime type.  Real-world 
  * servers use more extensive lists such as /etc/mime.types
  */
@@ -330,6 +322,57 @@ guess_mime_type(char *filename)
     return "text/plain";
 }
 
+/* Send Not Found response. */
+static bool
+send_not_found(struct http_transaction *ta)
+{
+    char fname[PATH_MAX];
+
+    char *req_path = "/index.html";
+    // The code below is vulnerable to an attack.  Can you see
+    // which?  Fix it to avoid indirect object reference (IDOR) attacks.
+    snprintf(fname, sizeof fname, "%s%s", server_root, req_path);
+
+    if (access(fname, R_OK)) {
+        if (errno == EACCES)
+            return send_error(ta, HTTP_PERMISSION_DENIED, "Permission denied.");
+        else
+            return send_error(ta, HTTP_NOT_FOUND, "File %s not found", 
+        bufio_offset2ptr(ta->client->bufio, ta->req_path));
+    }
+
+    // Determine file size
+    struct stat st;
+    int rc = stat(fname, &st);
+    if (rc == -1)
+        return send_error(ta, HTTP_INTERNAL_ERROR, "Could not stat file.");
+
+    int filefd = open(fname, O_RDONLY);
+    if (filefd == -1) {
+        return send_error(ta, HTTP_NOT_FOUND, "File %s not found", 
+        bufio_offset2ptr(ta->client->bufio, ta->req_path));
+    }
+
+    ta->resp_status = HTTP_OK;
+    http_add_header(&ta->resp_headers, "Content-Type", "%s", guess_mime_type(fname));
+    off_t from = 0, to = st.st_size - 1;
+
+    off_t content_length = to + 1 - from;
+    add_content_length(&ta->resp_headers, content_length);
+
+    bool success = send_response_header(ta);
+    if (!success)
+        goto out;
+
+    // sendfile may send fewer bytes than requested, hence the loop
+    while (success && from <= to)
+        success = bufio_sendfile(ta->client->bufio, filefd, &from, to + 1 - from) > 0;
+
+out:
+    close(filefd);
+    return success;
+}
+
 /* Handle HTTP transaction for static files. */
 static bool
 handle_static_asset(struct http_transaction *ta, char *basedir)
@@ -337,6 +380,10 @@ handle_static_asset(struct http_transaction *ta, char *basedir)
     char fname[PATH_MAX];
 
     char *req_path = bufio_offset2ptr(ta->client->bufio, ta->req_path);
+    if (strcmp("/", req_path) == 0)
+    {
+        return send_not_found(ta);
+    }
     // The code below is vulnerable to an attack.  Can you see
     // which?  Fix it to avoid indirect object reference (IDOR) attacks.
     snprintf(fname, sizeof fname, "%s%s", basedir, req_path);
@@ -418,7 +465,6 @@ handle_api(struct http_transaction *ta)
             return send_error(ta, HTTP_PERMISSION_DENIED, "read wrong.");
         }
 
-        printf("username: %s password: %s", json_string_value(username), json_string_value(password));
 
         if (strcmp(json_string_value(username), "user0") == 0 && strcmp(json_string_value(password), "thepassword") == 0)
         {
