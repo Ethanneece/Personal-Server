@@ -116,7 +116,6 @@ http_process_headers(struct http_transaction *ta)
         // you may print the header like so
         // printf("Header: %s: %s\n", field_name, field_value);
         if (!strcasecmp(field_name, "Content-Length")) {
-            printf("Header: %s: %s\n", field_name, field_value);
             ta->req_content_len = atoi(field_value);
         }
 
@@ -124,7 +123,39 @@ http_process_headers(struct http_transaction *ta)
          * are zero-terminated strings.
          */
         if (!strcasecmp(field_name, "Cookie")) {
-            printf(field_name);
+            while (*field_value != '=')
+                field_value++;
+            field_value++;
+
+            printf("Header: %s: %s\n", field_name, field_value);
+
+            jwt_t* token;
+
+            jwt_decode(&token, field_value, (unsigned char *)NEVER_EMBED_A_SECRET_IN_CODE, strlen(NEVER_EMBED_A_SECRET_IN_CODE));
+            char* grants = jwt_get_grants_json(token, NULL); // NULL means all
+            jwt_free(token);
+
+            json_error_t error;
+            json_t *jgrants = json_loadb(grants, strlen(grants), 0, &error);
+
+            free (grants);
+
+            json_int_t exp, iat;
+            const char *sub;
+            json_unpack(jgrants, "{s:I, s:I, s:s}", 
+                "exp", &exp, "iat", &iat, "sub", &sub);
+
+            time_t now = time(NULL);
+
+            if (exp > now)
+            {
+                ta->validated = true;
+            }
+
+            else
+            {
+                ta->validated = false;
+            }
         }
     }
 }
