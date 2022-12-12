@@ -48,6 +48,10 @@ struct http_transaction {
 
     bool validated; 
 
+    bool range; 
+    int start; 
+    int end; 
+
     struct http_client *client;
 };
 

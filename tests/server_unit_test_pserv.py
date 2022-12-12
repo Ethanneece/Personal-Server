@@ -2214,6 +2214,7 @@ class VideoStreaming(Doc_Print_Test_Case):
                 req = requests.Request('GET', url)
                 prepared_req = req.prepare()
                 prepared_req.url = url
+                print(prepared_req.body)
                 response = self.session.send(prepared_req, timeout=2)
             except requests.exceptions.RequestException:
                 raise AssertionError("The server did not respond within 2s")
@@ -2315,6 +2316,7 @@ class VideoStreaming(Doc_Print_Test_Case):
                 req.headers = {"Range": rgheader}
                 prepared_req = req.prepare()
                 prepared_req.url = url
+                print(req.headers)
                 response = self.session.send(prepared_req, timeout=2)
             except requests.exceptions.RequestException:
                 raise AssertionError("The server did not respond within 2s\nRange request sent: '%s'" % rgheader)

@@ -251,6 +251,20 @@ http_process_headers(struct http_transaction *ta)
             ta->req_content_len = atoi(field_value);
         }
 
+        if (!strcasecmp(field_name, "Range"))
+        {
+             
+            int start = 0; 
+            int end = 0; 
+
+            sscanf(field_value, "bytes=%d-%d ", &start, &end);
+
+            ta->start = start;
+            ta->end = end; 
+
+            ta->range = true;
+        }
+
         /* Handle other headers here. Both field_value and field_name
          * are zero-terminated strings.
          */
@@ -325,6 +339,9 @@ guess_mime_type(char *filename)
 
     if (!strcasecmp(suffix, ".css"))
         return "text/css";
+
+    if (!strcasecmp(suffix, ".mp4"))
+        return "video/mp4";
 
     return "text/plain";
 }
@@ -416,9 +433,26 @@ handle_static_asset(struct http_transaction *ta, char *basedir)
     ta->resp_status = HTTP_OK;
     http_add_header(&ta->resp_headers, "Content-Type", "%s", guess_mime_type(fname));
     off_t from = 0, to = st.st_size - 1;
+    
+
+    if (ta->range)
+    {
+
+        from = ta->start; 
+        to = ta->end; 
+        ta->resp_status = HTTP_PARTIAL_CONTENT; 
+
+        if (to == 0)
+        {
+            to = st.st_size - 1; 
+        }
+
+        http_add_header(&ta->resp_headers, "Content-Range", "bytes %ld-%ld/%ld", from, to, st.st_size);
+    }
 
     off_t content_length = to + 1 - from;
     add_content_length(&ta->resp_headers, content_length);
+    http_add_header(&ta->resp_headers, "Accept-Ranges", "bytes");
 
     bool success = send_response_header(ta);
     if (!success)
@@ -507,39 +541,49 @@ handle_api(struct http_transaction *ta)
     {
         if (strcmp(pathOfLogin, "/api/video") == 0)
         {
+            char fname[PATH_MAX];
             DIR* directory = opendir(server_root);
-            struct dirent* current_file = readdir(directory);
+            struct dirent* current_file;
 
             json_t* body = json_array();
 
-            while (current_file != NULL)
+            while ((current_file = readdir(directory)) != NULL)
             {
-                char fname[PATH_MAX];
-                snprintf(fname, sizeof fname, "%s%s", server_root, current_file->d_name);
+                
+                char * fileChecker = current_file->d_name + strlen(current_file->d_name) - 4; 
 
-                char* suffix = strrchr(fname, '.');
-
-                if (!strcasecmp(suffix, ".mp4"))
+                if (fileChecker < current_file->d_name)
                 {
-                    struct stat sb;
+                    continue; 
+                }
 
-                    stat(fname, &sb);
+                if (strcmp(fileChecker, ".mp4") == 0)
+                {
+                    struct stat stats; 
+                    snprintf(fname, sizeof fname, "%s/%s", server_root, current_file->d_name);
+                    stat(fname, &stats);
 
-                    json_t* entry = json_object();
-                    json_object_set_new(entry, "size", json_integer(sb.st_size));
-                    json_object_set_new(entry, "name", json_string(current_file->d_name));
+                    json_t * videoHolder = json_object(); 
 
-                    json_decref(entry);
+                    int name = json_object_set_new(videoHolder, "name", json_string(current_file->d_name));
+                    int size = json_object_set_new(videoHolder, "size", json_integer(stats.st_size));
 
-                    json_array_append(body, entry);
+                    if (size != 0 || name != 0)
+                    {
+                        continue; 
+                    }
+
+                    json_array_append(body, videoHolder);
                 }
             }
 
-            // char* string_body = json_string_value(body);
-            // json_decref(body);
-
-            // buffer_appends(&ta->resp_body, string_body);
             http_add_header(&ta->resp_headers, "Content-Type", "%s", "application/json");
+            http_add_header(&ta->resp_headers, "Accept-Ranges", "bytes");
+
+            buffer_appends(&ta->resp_body, json_dumps(body, JSON_INDENT(4)));
+            
+            
+            return send_response(ta);
         }
     }
 
