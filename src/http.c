@@ -285,6 +285,7 @@ http_process_headers(struct http_transaction *ta)
             }
             
             char* grants = jwt_get_grants_json(token, NULL); // NULL means all
+            ta->cookie_claims = grants;
             jwt_free(token);
 
             json_error_t error;
@@ -489,6 +490,15 @@ handle_api(struct http_transaction *ta)
 
     if (ta->req_method == HTTP_POST)
     {
+        if (strcmp(pathOfLogin, "/api/logout") == 0)
+        {
+            http_add_header(&ta->resp_headers, "Set-Cookie", "HttpOnly; Max-Age=0; Path=/");
+            http_add_header(&ta->resp_headers, "Content-Type", "%s", "application/json");
+            buffer_appends(&ta->resp_body, "{}");
+
+            return send_response(ta);
+        }
+
         if (strcmp(pathOfLogin, "/api/login") != 0)
         {
             return send_error(ta, HTTP_PERMISSION_DENIED, "DUCKS ARE COOL!");
@@ -539,6 +549,23 @@ handle_api(struct http_transaction *ta)
 
     else if (ta->req_method == HTTP_GET)
     {
+        if (strcmp(pathOfLogin, "/api/login") == 0)
+        {
+            http_add_header(&ta->resp_headers, "Content-Type", "%s", "application/json");
+
+            if (ta->validated)
+            {
+                buffer_appends(&ta->resp_body, ta->cookie_claims);
+            }
+
+            else
+            {
+                buffer_appends(&ta->resp_body, "{}");
+            }
+
+            return send_response(ta);
+        }
+
         if (strcmp(pathOfLogin, "/api/video") == 0)
         {
             char fname[PATH_MAX];
@@ -587,7 +614,6 @@ handle_api(struct http_transaction *ta)
         }
     }
 
-    buffer_appends(&ta->resp_body, "{}");
     return send_response(ta);
 }
 

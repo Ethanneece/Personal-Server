@@ -47,6 +47,7 @@ struct http_transaction {
     buffer_t resp_body;
 
     bool validated; 
+    char* cookie_claims;
 
     bool range; 
     int start; 
