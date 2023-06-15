@@ -1826,6 +1826,7 @@ class Authentication(Doc_Print_Test_Case):
 
         def test_expiry_authentication(i):
             # Login using the default credentials
+            print("HI")
             try:
                 response = self.sessions[i].post('http://%s:%s/api/login' % (self.hostname, self.port),
                                              json={'username': self.username, 'password': self.password},

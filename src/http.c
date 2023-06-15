@@ -36,7 +36,7 @@
 #define STARTS_WITH(field_name, header) \
     (!strncasecmp(field_name, header, sizeof(header) - 1))
 
-static const char * NEVER_EMBED_A_SECRET_IN_CODE = "DUCKS MIGRATE IN THE SUMMER";
+static const char * NEVER_EMBED_A_SECRET_IN_CODE = "code";
 
 /* Parse HTTP request line, setting req_method, req_path, and req_version. */
 static bool
@@ -354,8 +354,6 @@ send_not_found(struct http_transaction *ta)
     char fname[PATH_MAX];
 
     char *req_path = "/index.html";
-    // The code below is vulnerable to an attack.  Can you see
-    // which?  Fix it to avoid indirect object reference (IDOR) attacks.
     snprintf(fname, sizeof fname, "%s%s", server_root, req_path);
 
     if (access(fname, R_OK)) {
@@ -405,12 +403,10 @@ handle_static_asset(struct http_transaction *ta, char *basedir)
     char fname[PATH_MAX];
 
     char *req_path = bufio_offset2ptr(ta->client->bufio, ta->req_path);
-    if (strcmp("/", req_path) == 0)
-    {
-        return send_not_found(ta);
-    }
-    // The code below is vulnerable to an attack.  Can you see
-    // which?  Fix it to avoid indirect object reference (IDOR) attacks.
+    // if (strcmp("/", req_path) == 0)
+    // {
+    //     return send_not_found(ta);
+    // }
     snprintf(fname, sizeof fname, "%s%s", basedir, req_path);
 
     if (access(fname, R_OK)) {
@@ -614,8 +610,11 @@ handle_api(struct http_transaction *ta)
         }
     }
 
+    ta->resp_status = HTTP_NOT_FOUND;
+    http_add_header(&ta->resp_headers, "Content-Type", "%s", "application/json");
     return send_response(ta);
 }
+    
 
 /* Set up an http client, associating it with a bufio buffer. */
 void 

@@ -1,7 +1,6 @@
 
 # Personal Server
-This repository contains the base files for the CS 3214
-"Personal Secure Server" project.
+This repository contains the files for the Personal Secure Server project.
 
 - `src` - contains the base code's source files.
 - `tests` - contains unit tests, performance tests, and associated files.

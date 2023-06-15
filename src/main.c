@@ -40,9 +40,7 @@ pthread_mutex_t current_threads_lock;               // Lock for the future
 
 static void * clientConnection(void* _arg)
 {
-    int * client_socket = (int *) _arg;    
-    int *socket = malloc(sizeof(int));
-        *socket = *client_socket;
+    int * client_socket = (int *) _arg;
 
 
     struct http_client client;
@@ -71,9 +69,10 @@ server_loop(char *port_string)
         if (client_socket == -1)
             return;
 
-
+        int *socket = malloc(sizeof(int));
+        *socket = client_socket; 
         pthread_t thread; 
-        pthread_create(&thread, NULL, clientConnection, &client_socket);
+        pthread_create(&thread, NULL, clientConnection, socket);
         pthread_detach(thread);
 
         }
